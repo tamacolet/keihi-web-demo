@@ -30,7 +30,7 @@ export function checkRateLimit(ip: string, cost = 1): RateResult {
     if (e.hourBucket !== hourBucket) { e.hourBucket = hourBucket; e.hourCount = 0; }
 
     if (e.minuteCount + cost > PER_MINUTE) {
-        return { ok: false, message: '少し待ってくりゃれ（数十秒後に再度どうぞ）。' };
+        return { ok: false, message: '少し時間をおいてから再度お試しください（数十秒後）。' };
     }
     if (e.hourCount + cost > PER_HOUR) {
         return { ok: false, message: '1時間あたりの上限に達しました。しばらくしてからお試しください。' };

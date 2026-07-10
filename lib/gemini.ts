@@ -58,12 +58,12 @@ export async function extractExpenseData(input: ExtractInput): Promise<ExpenseDa
         throw new Error('画像またはテキストが必要です。');
     }
     if (hasImage && !input.mimeType!.startsWith('image/')) {
-        throw new Error('画像ファイル、またはテキストで経費内容を送ってくりゃれ。');
+        throw new Error('画像ファイル、またはテキストで経費内容を送ってください。');
     }
     if (hasImage) {
         const approxBytes = Math.floor(input.imageBase64!.length * 0.75);
         if (approxBytes > MAX_IMAGE_BYTES) {
-            throw new Error(`画像が大きすぎます（上限 ${Math.floor(MAX_IMAGE_BYTES / 1024 / 1024)}MB）。小さい画像で送ってくりゃれ。`);
+            throw new Error(`画像が大きすぎます（上限 ${Math.floor(MAX_IMAGE_BYTES / 1024 / 1024)}MB）。小さい画像で送ってください。`);
         }
     }
 

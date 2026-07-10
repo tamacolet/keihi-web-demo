@@ -194,6 +194,11 @@ button.btn:disabled { opacity: .5; cursor: default; }
 }
 .ledger-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .ledger-head h2 { margin: 0; font-size: .95rem; }
+.sheet-link {
+    display: block; padding: 8px 16px; font-size: .8rem; color: var(--accent);
+    text-decoration: none; border-bottom: 1px solid var(--border); background: var(--surface-2);
+}
+.sheet-link:hover { text-decoration: underline; }
 .ledger { padding: 8px; max-height: 70vh; overflow-y: auto; }
 .ledger-empty { color: var(--text-dim); text-align: center; padding: 24px 8px; font-size: .85rem; }
 .ledger-row { padding: 9px 10px; border-radius: 10px; }

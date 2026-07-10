@@ -168,7 +168,7 @@ function closeEditModal() { $('edit-modal').hidden = true; modalSave = null; }
 $('edit-cancel').addEventListener('click', closeEditModal);
 $('edit-save').addEventListener('click', () => {
   const amount = parseInt(String($('edit-amount').value).replace(/[^0-9]/g, ''), 10);
-  if (!Number.isFinite(amount) || amount <= 0) { toast('⚠️ 金額は1以上の数字で入力してくりゃれ。'); return; }
+  if (!Number.isFinite(amount) || amount <= 0) { toast('⚠️ 金額は1以上の数字で入力してください。'); return; }
   const date = $('edit-date').value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('⚠️ 日付は YYYY-MM-DD 形式で。'); return; }
   const updated = {
@@ -231,7 +231,7 @@ inputEl.addEventListener('input', autoGrow);
 
 // ---- 画像添付 ----
 function setImageFromFile(file) {
-  if (!file || !file.type.startsWith('image/')) { toast('⚠️ 画像ファイルを選んでくりゃれ。'); return; }
+  if (!file || !file.type.startsWith('image/')) { toast('⚠️ 画像ファイルを選んでください。'); return; }
   if (file.size > MAX_IMAGE_BYTES) { toast('⚠️ 画像が大きすぎます（上限5MB）。'); return; }
   const reader = new FileReader();
   reader.onload = () => {
@@ -263,7 +263,7 @@ async function loadLedger() {
     const res = await fetch('/api/recent');
     const body = await res.json();
     const rows = body.rows || [];
-    if (rows.length === 0) { ledgerEl.innerHTML = '<p class="ledger-empty">まだ記帳がありません。<br>左で経費を送ってみてくりゃれ。</p>'; return; }
+    if (rows.length === 0) { ledgerEl.innerHTML = '<p class="ledger-empty">まだ記帳がありません。<br>左で経費を送ってみてください。</p>'; return; }
     const firstKey = rows[0].date + rows[0].amount + rows[0].stamp;
     ledgerEl.innerHTML = rows.map((r, i) => `
       <div class="ledger-row ${i === 0 && firstKey !== lastLedgerKey && lastLedgerKey ? 'fresh' : ''}">
@@ -342,7 +342,7 @@ $('fixed-form').addEventListener('submit', (e) => {
   const category = $('fixed-category').value.trim();
   const payee = $('fixed-payee').value.trim();
   if (!Number.isFinite(amount) || amount <= 0) { toast('⚠️ 金額は1以上で。'); return; }
-  if (!category) { toast('⚠️ 科目を入力してくりゃれ。'); return; }
+  if (!category) { toast('⚠️ 科目を入力してください。'); return; }
   fixed.push({ amount, category, payee, notes: '固定費' });
   save(LS.fixed, fixed);
   $('fixed-amount').value = ''; $('fixed-category').value = ''; $('fixed-payee').value = '';
@@ -377,7 +377,7 @@ const EXAMPLES = [
 function renderExamples() {
   addBotBubble(
     'こんにちは！このデモは <b>①送る → ②AIが読み取る → ③確認して記帳</b> の3ステップです 🧾<br>' +
-    'レシート画像や「コンビニ 500円」のような一言を下の欄に入力するか、<b>まずは下の例をタップ</b>してみてくりゃれ👇'
+    'レシート画像や「コンビニ 500円」のような一言を下の欄に入力するか、<b>まずは下の例をタップ</b>してみてください👇'
   );
   const wrap = document.createElement('div');
   wrap.className = 'msg bot';
