@@ -136,6 +136,16 @@ body {
 .card-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .card-shortcuts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 
+/* 初期挨拶のワンタップ例チップ */
+.example-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.example-chip {
+    background: var(--surface); color: var(--text); border: 1px solid var(--accent);
+    border-radius: 999px; padding: 8px 14px; font-size: .85rem; cursor: pointer;
+    font-weight: 600; transition: background .15s, transform .05s;
+}
+.example-chip:hover { background: var(--accent); color: var(--accent-ink); }
+.example-chip:active { transform: translateY(1px); }
+
 button.btn { border: none; border-radius: 9px; padding: 8px 12px; cursor: pointer; font-size: .82rem; font-weight: 600; }
 button.btn:disabled { opacity: .5; cursor: default; }
 .btn-success { background: var(--success); color: #fff; }

@@ -286,9 +286,18 @@ $('settings-drawer').addEventListener('click', (e) => { if (e.target.id === 'set
 function renderSettings() { renderCategoryChips(); renderShortcutChips(); renderFixedList(); refreshCatDatalist(); }
 
 function renderCategoryChips() {
-  $('category-chips').innerHTML = categories.map(c =>
+  const el = $('category-chips');
+  // 空でも壊れて見せない: 初期科目に戻すボタンを出す
+  if (categories.length === 0) {
+    el.innerHTML = '<p class="setting-help">科目が空です。</p><button id="cat-reset" class="ghost-btn small">初期科目に戻す</button>';
+    $('cat-reset').addEventListener('click', () => {
+      categories = DEFAULT_CATEGORIES.slice(); save(LS.categories, categories); renderSettings();
+    });
+    return;
+  }
+  el.innerHTML = categories.map(c =>
     `<span class="chip">${escapeHtml(c)}<button data-c="${escapeHtml(c)}" title="削除">✕</button></span>`).join('');
-  $('category-chips').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
     categories = categories.filter(x => x !== b.dataset.c); save(LS.categories, categories); renderSettings();
   }));
 }
@@ -300,9 +309,14 @@ $('category-form').addEventListener('submit', (e) => {
 });
 
 function renderShortcutChips() {
-  $('shortcut-chips').innerHTML = shortcuts.map(c =>
+  const el = $('shortcut-chips');
+  if (shortcuts.length === 0) {
+    el.innerHTML = '<p class="setting-help">未登録です。下の欄から追加できます。</p>';
+    return;
+  }
+  el.innerHTML = shortcuts.map(c =>
     `<span class="chip">${escapeHtml(c)}<button data-s="${escapeHtml(c)}" title="削除">✕</button></span>`).join('');
-  $('shortcut-chips').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
     shortcuts = shortcuts.filter(x => x !== b.dataset.s); save(LS.shortcuts, shortcuts); renderSettings();
   }));
 }
@@ -353,7 +367,39 @@ $('fixed-run').addEventListener('click', async () => {
   }
 });
 
-// ---- 初期挨拶 ----
-addBotBubble('こんにちは！レシート画像や「コンビニ 500円」のような一言を送ってくりゃれ。AIが読み取って記帳します 🧾');
+// ---- 初期挨拶＋使い方＋ワンタップ例 ----
+const EXAMPLES = [
+  '🍙 コンビニ おにぎり 250円',
+  '☕ スタバ ラテ 620円',
+  '🚕 タクシー 1200円'
+];
+
+function renderExamples() {
+  addBotBubble(
+    'こんにちは！このデモは <b>①送る → ②AIが読み取る → ③確認して記帳</b> の3ステップです 🧾<br>' +
+    'レシート画像や「コンビニ 500円」のような一言を下の欄に入力するか、<b>まずは下の例をタップ</b>してみてくりゃれ👇'
+  );
+  const wrap = document.createElement('div');
+  wrap.className = 'msg bot';
+  wrap.innerHTML = '<div class="avatar">🧾</div>';
+  const chips = document.createElement('div');
+  chips.className = 'example-chips';
+  EXAMPLES.forEach((label) => {
+    const btn = document.createElement('button');
+    btn.className = 'example-chip';
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      // 絵文字ラベルを外して本文だけ送信し、そのまま抽出まで自動実行
+      inputEl.value = label.replace(/^\S+\s/, '');
+      handleSend();
+    });
+    chips.appendChild(btn);
+  });
+  wrap.appendChild(chips);
+  messagesEl.appendChild(wrap);
+  scrollDown();
+}
+
+renderExamples();
 refreshCatDatalist();
 loadLedger();
