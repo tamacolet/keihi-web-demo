@@ -17,11 +17,20 @@ function load(key, fallback) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; }
   catch { return fallback; }
 }
-function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+// 破損値や別型で起動時にクラッシュしないよう、配列を期待する項目はガードする
+function loadArray(key, fallback) {
+  const v = load(key, fallback);
+  return Array.isArray(v) ? v : fallback.slice();
+}
+function save(key, val) {
+  // iOSプライベートモード等で setItem が例外を投げてもクラッシュさせない
+  try { localStorage.setItem(key, JSON.stringify(val)); }
+  catch { toast('設定を保存できませんでした（ブラウザのストレージ制限の可能性）'); }
+}
 
-let categories = load(LS.categories, DEFAULT_CATEGORIES.slice());
-let shortcuts = load(LS.shortcuts, ['交際費', '会議費']);
-let fixed = load(LS.fixed, []);
+let categories = loadArray(LS.categories, DEFAULT_CATEGORIES.slice());
+let shortcuts = loadArray(LS.shortcuts, ['交際費', '会議費']);
+let fixed = loadArray(LS.fixed, []);
 
 // ---- DOM ----
 const $ = (id) => document.getElementById(id);
@@ -93,21 +102,23 @@ function addConfirmCard(data) {
   let current = { ...data };
 
   function renderCard() {
+    const invalidAmount = !(Number(current.amount) > 0);
     card.innerHTML = `
       <h4>この内容で記帳しますか？</h4>
       <div class="card-row"><span class="k">日付</span><span class="v">${escapeHtml(current.date)}</span></div>
-      <div class="card-row"><span class="k">金額</span><span class="v amount">${Number(current.amount).toLocaleString()}円</span></div>
+      <div class="card-row"><span class="k">金額</span><span class="v amount${invalidAmount ? ' warn' : ''}">${Number(current.amount).toLocaleString()}円</span></div>
       <div class="card-row"><span class="k">勘定科目</span><span class="v">${escapeHtml(current.category)}</span></div>
       <div class="card-row"><span class="k">支払先</span><span class="v">${escapeHtml(current.payee || 'なし')}</span></div>
       <div class="card-row"><span class="k">備考</span><span class="v">${escapeHtml(current.notes || 'なし')}</span></div>
+      ${invalidAmount ? '<p class="card-note">⚠️ 金額を読み取れませんでした。「修正する」で入力してください。</p>' : ''}
       <div class="card-actions">
-        <button class="btn btn-success" data-act="record">記帳する</button>
+        <button class="btn btn-success" data-act="record"${invalidAmount ? ' disabled' : ''}>記帳する</button>
         <button class="btn btn-primary" data-act="edit">修正する</button>
         <button class="btn btn-secondary" data-act="cancel">キャンセル</button>
       </div>
       ${shortcuts.length ? `<div class="card-shortcuts">${shortcuts.map(s => `<button class="chip-btn" data-sc="${escapeHtml(s)}">🏷️ ${escapeHtml(s)}</button>`).join('')}</div>` : ''}
     `;
-    card.querySelector('[data-act="record"]').addEventListener('click', onRecord);
+    if (!invalidAmount) card.querySelector('[data-act="record"]').addEventListener('click', onRecord);
     card.querySelector('[data-act="edit"]').addEventListener('click', onEdit);
     card.querySelector('[data-act="cancel"]').addEventListener('click', onCancel);
     card.querySelectorAll('[data-sc]').forEach(b =>
@@ -154,7 +165,9 @@ function addConfirmCard(data) {
 
 // ---- 修正モーダル ----
 let modalSave = null;
+let lastFocused = null;  // ダイアログを開く前のフォーカス起点（閉じたら復帰）
 function openEditModal(data, onSave) {
+  lastFocused = document.activeElement;
   $('edit-date').value = data.date;
   $('edit-amount').value = data.amount;
   $('edit-category').value = data.category;
@@ -163,8 +176,12 @@ function openEditModal(data, onSave) {
   refreshCatDatalist();
   modalSave = onSave;
   $('edit-modal').hidden = false;
+  $('edit-date').focus();
 }
-function closeEditModal() { $('edit-modal').hidden = true; modalSave = null; }
+function closeEditModal() {
+  $('edit-modal').hidden = true; modalSave = null;
+  if (lastFocused && lastFocused.focus) lastFocused.focus();
+}
 $('edit-cancel').addEventListener('click', closeEditModal);
 $('edit-save').addEventListener('click', () => {
   const amount = parseInt(String($('edit-amount').value).replace(/[^0-9]/g, ''), 10);
@@ -187,7 +204,16 @@ function refreshCatDatalist() {
 }
 
 // ---- 送信 ----
+let sending = false;  // 再入防止（Enter/例チップ/ボタンの並行送信を一元ガード）
+
+function setSendingState(on) {
+  sending = on;
+  sendBtn.disabled = on;
+  document.querySelectorAll('.example-chip').forEach(b => { b.disabled = on; });
+}
+
 async function handleSend() {
+  if (sending) return;
   const text = inputEl.value.trim();
   if (!text && !pendingImage) return;
 
@@ -195,7 +221,7 @@ async function handleSend() {
   const imgForReq = pendingImage;
   inputEl.value = ''; autoGrow();
   clearAttachment();
-  sendBtn.disabled = true;
+  setSendingState(true);
 
   const thinking = addBotBubble('🔄 内容を確認しています…');
 
@@ -211,18 +237,26 @@ async function handleSend() {
     });
     const body = await res.json();
     thinking.remove();
-    if (!res.ok) { addBotBubble('❌ ' + escapeHtml(body.error || 'エラーが発生しました。')); }
+    if (!res.ok) {
+      addBotBubble('❌ ' + escapeHtml(body.error || 'エラーが発生しました。'));
+      // 失敗時は入力とプレビューを復元してリトライしやすく
+      inputEl.value = text; autoGrow();
+      if (imgForReq) { pendingImage = imgForReq; attachThumb.src = imgForReq.dataUrl; attachPreview.hidden = false; }
+    }
     else { addConfirmCard(body.data); }
   } catch (e) {
     thinking.remove();
     addBotBubble('❌ 通信エラーが発生しました。');
+    inputEl.value = text; autoGrow();
+    if (imgForReq) { pendingImage = imgForReq; attachThumb.src = imgForReq.dataUrl; attachPreview.hidden = false; }
   } finally {
-    sendBtn.disabled = false;
+    setSendingState(false);
   }
 }
 composerEl.addEventListener('submit', (e) => { e.preventDefault(); handleSend(); });
 inputEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  // IME変換中(isComposing/keyCode 229)のEnterは無視し、確定後のEnterでのみ送信
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); handleSend(); }
 });
 
 // textarea 自動リサイズ
@@ -237,10 +271,12 @@ function setImageFromFile(file) {
   reader.onload = () => {
     const dataUrl = reader.result;
     const base64 = String(dataUrl).split(',')[1];
+    if (!base64) { toast('⚠️ 画像を読み込めませんでした。'); return; }
     pendingImage = { base64, mimeType: file.type, dataUrl };
     attachThumb.src = dataUrl;
     attachPreview.hidden = false;
   };
+  reader.onerror = () => { toast('⚠️ 画像を読み込めませんでした。'); };
   reader.readAsDataURL(file);
 }
 function clearAttachment() { pendingImage = null; attachPreview.hidden = true; attachThumb.src = ''; fileInput.value = ''; }
@@ -262,8 +298,10 @@ async function loadLedger() {
   try {
     const res = await fetch('/api/recent');
     const body = await res.json();
+    // 取得失敗（error あり）と正常な空を区別する
+    if (body.error) { ledgerEl.innerHTML = '<p class="ledger-empty">台帳の取得に失敗しました。時間をおいて再度お試しください。</p>'; return; }
     const rows = body.rows || [];
-    if (rows.length === 0) { ledgerEl.innerHTML = '<p class="ledger-empty">まだ記帳がありません。<br>左で経費を送ってみてください。</p>'; return; }
+    if (rows.length === 0) { ledgerEl.innerHTML = '<p class="ledger-empty">まだ記帳がありません。<br>経費を送るとここに反映されます。</p>'; return; }
     const firstKey = rows[0].date + rows[0].amount + rows[0].stamp;
     ledgerEl.innerHTML = rows.map((r, i) => `
       <div class="ledger-row ${i === 0 && firstKey !== lastLedgerKey && lastLedgerKey ? 'fresh' : ''}">
@@ -275,13 +313,34 @@ async function loadLedger() {
     ledgerEl.innerHTML = '<p class="ledger-empty">台帳の取得に失敗しました。</p>';
   }
 }
-$('btn-refresh').addEventListener('click', loadLedger);
+$('btn-refresh').addEventListener('click', async () => {
+  const b = $('btn-refresh');
+  b.disabled = true; b.classList.add('spinning');
+  try { await loadLedger(); } finally { b.disabled = false; b.classList.remove('spinning'); }
+});
 setInterval(loadLedger, 20000);
 
 // ---- 設定ドロワー ----
-$('btn-settings').addEventListener('click', () => { renderSettings(); $('settings-drawer').hidden = false; });
-$('settings-close').addEventListener('click', () => { $('settings-drawer').hidden = true; });
-$('settings-drawer').addEventListener('click', (e) => { if (e.target.id === 'settings-drawer') $('settings-drawer').hidden = true; });
+function openSettings() {
+  lastFocused = document.activeElement;
+  renderSettings();
+  $('settings-drawer').hidden = false;
+  $('settings-close').focus();
+}
+function closeSettings() {
+  $('settings-drawer').hidden = true;
+  if (lastFocused && lastFocused.focus) lastFocused.focus();
+}
+$('btn-settings').addEventListener('click', openSettings);
+$('settings-close').addEventListener('click', closeSettings);
+$('settings-drawer').addEventListener('click', (e) => { if (e.target.id === 'settings-drawer') closeSettings(); });
+
+// Escでモーダル/ドロワーを閉じる（モーダル優先）
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('edit-modal').hidden) { closeEditModal(); }
+  else if (!$('settings-drawer').hidden) { closeSettings(); }
+});
 
 function renderSettings() { renderCategoryChips(); renderShortcutChips(); renderFixedList(); refreshCatDatalist(); }
 
@@ -296,7 +355,7 @@ function renderCategoryChips() {
     return;
   }
   el.innerHTML = categories.map(c =>
-    `<span class="chip">${escapeHtml(c)}<button data-c="${escapeHtml(c)}" title="削除">✕</button></span>`).join('');
+    `<span class="chip">${escapeHtml(c)}<button data-c="${escapeHtml(c)}" aria-label="${escapeHtml(c)}を削除" title="削除">✕</button></span>`).join('');
   el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
     categories = categories.filter(x => x !== b.dataset.c); save(LS.categories, categories); renderSettings();
   }));
@@ -315,7 +374,7 @@ function renderShortcutChips() {
     return;
   }
   el.innerHTML = shortcuts.map(c =>
-    `<span class="chip">${escapeHtml(c)}<button data-s="${escapeHtml(c)}" title="削除">✕</button></span>`).join('');
+    `<span class="chip">${escapeHtml(c)}<button data-s="${escapeHtml(c)}" aria-label="${escapeHtml(c)}を削除" title="削除">✕</button></span>`).join('');
   el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
     shortcuts = shortcuts.filter(x => x !== b.dataset.s); save(LS.shortcuts, shortcuts); renderSettings();
   }));

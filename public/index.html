@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>経費くん Webデモ — レシートを送るだけでAI記帳</title>
     <meta name="description" content="レシート画像や一言テキストを送るだけで、AIが日付・金額・勘定科目を抽出してスプレッドシートに自動記帳するデモです。" />
+    <meta name="theme-color" content="#5865f2" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="経費くん Webデモ — レシートを送るだけでAI記帳" />
+    <meta property="og:description" content="レシート画像や一言テキストを送るだけで、AIが日付・金額・勘定科目を抽出してスプレッドシートに自動記帳するデモ。" />
+    <meta property="og:url" content="https://keihi-web-demo.vercel.app/" />
+    <meta name="twitter:card" content="summary" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>" />
     <link rel="stylesheet" href="/styles.css" />
 </head>
@@ -18,8 +24,8 @@
             </div>
         </div>
         <div class="topbar-actions">
-            <button id="btn-settings" class="ghost-btn" title="設定">⚙️ 設定</button>
-            <button id="btn-theme" class="ghost-btn" title="テーマ切替">🌓</button>
+            <button id="btn-settings" class="ghost-btn" aria-label="設定を開く"><span aria-hidden="true">⚙️</span> 設定</button>
+            <button id="btn-theme" class="ghost-btn" aria-label="テーマを切り替え"><span aria-hidden="true">🌓</span></button>
         </div>
     </header>
 
@@ -33,16 +39,14 @@
             <div id="messages" class="messages" aria-live="polite"></div>
 
             <form id="composer" class="composer">
-                <label class="attach-btn" title="画像を添付">
-                    📎
-                    <input id="file-input" type="file" accept="image/*" hidden />
-                </label>
+                <label class="attach-btn" for="file-input" title="画像を添付"><span aria-hidden="true">📎</span></label>
+                <input id="file-input" class="sr-only" type="file" accept="image/*" aria-label="レシート画像を添付" />
                 <div class="composer-main">
                     <div id="attach-preview" class="attach-preview" hidden>
                         <img id="attach-thumb" alt="添付プレビュー" />
-                        <button type="button" id="attach-remove" class="attach-remove" title="削除">✕</button>
+                        <button type="button" id="attach-remove" class="attach-remove" aria-label="添付を削除" title="削除">✕</button>
                     </div>
-                    <textarea id="input" rows="1" placeholder="例）コンビニ 500円 / スタバ ラテ 620円 … 画像も貼り付けOK"></textarea>
+                    <textarea id="input" rows="1" aria-label="経費のテキストを入力" placeholder="例）コンビニ 500円 / スタバ ラテ 620円 … 画像も貼り付けOK"></textarea>
                 </div>
                 <button type="submit" id="send-btn" class="send-btn">送信</button>
             </form>
@@ -53,7 +57,7 @@
         <aside class="ledger-pane">
             <div class="ledger-head">
                 <h2>📒 みんなの記帳</h2>
-                <button id="btn-refresh" class="ghost-btn small" title="更新">↻</button>
+                <button id="btn-refresh" class="ghost-btn small" aria-label="台帳を更新"><span aria-hidden="true">↻</span></button>
             </div>
             <a class="sheet-link" href="https://docs.google.com/spreadsheets/d/1dBl5ZDxyU-rBeGG2wUG6-stAChmYa0ejoY8NBEg-MSg/edit" target="_blank" rel="noopener">📄 記帳先スプレッドシートを開く ↗</a>
             <div id="ledger" class="ledger">
@@ -64,8 +68,8 @@
 
     <!-- 修正モーダル -->
     <div id="edit-modal" class="modal-overlay" hidden>
-        <div class="modal">
-            <h3>経費内容の修正</h3>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+            <h3 id="edit-modal-title">経費内容の修正</h3>
             <label>日付 (YYYY-MM-DD)<input id="edit-date" type="text" /></label>
             <label>金額 (円)<input id="edit-amount" type="text" inputmode="numeric" /></label>
             <label>勘定科目<input id="edit-category" type="text" list="cat-list" /></label>
@@ -81,10 +85,10 @@
 
     <!-- 設定ドロワー -->
     <div id="settings-drawer" class="drawer-overlay" hidden>
-        <div class="drawer">
+        <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <div class="drawer-head">
-                <h2>⚙️ 設定（任意カスタマイズ）</h2>
-                <button id="settings-close" class="ghost-btn">✕</button>
+                <h2 id="settings-title">⚙️ 設定（任意カスタマイズ）</h2>
+                <button id="settings-close" class="ghost-btn" aria-label="設定を閉じる"><span aria-hidden="true">✕</span></button>
             </div>
             <p class="drawer-note">※ ここは<strong>任意のカスタマイズ</strong>です。まずは画面のチャットにレシートやテキストを送ってみてください。設定内容はあなたのブラウザにだけ保存されます（localStorage）。</p>
 
@@ -93,7 +97,7 @@
                 <p class="setting-help">AIはこの中から一番近いものを選んで記帳します。</p>
                 <div id="category-chips" class="chips"></div>
                 <form id="category-form" class="mini-form">
-                    <input id="category-input" type="text" placeholder="科目を追加" maxlength="20" />
+                    <input id="category-input" type="text" aria-label="勘定科目を追加" placeholder="科目を追加" maxlength="20" />
                     <button class="primary-btn small" type="submit">追加</button>
                 </form>
             </section>
@@ -103,7 +107,7 @@
                 <p class="setting-help">確認カードに表示され、ワンタップで科目を差し替えられます。</p>
                 <div id="shortcut-chips" class="chips"></div>
                 <form id="shortcut-form" class="mini-form">
-                    <input id="shortcut-input" type="text" placeholder="ショートカットを追加" maxlength="20" />
+                    <input id="shortcut-input" type="text" aria-label="ショートカットを追加" placeholder="ショートカットを追加" maxlength="20" />
                     <button class="primary-btn small" type="submit">追加</button>
                 </form>
             </section>
@@ -124,7 +128,7 @@
         </div>
     </div>
 
-    <div id="toast" class="toast" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
     <script src="/app.js"></script>
 </body>

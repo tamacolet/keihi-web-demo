@@ -48,6 +48,13 @@
    [hidden]{display:none} を上書きし、モーダル/ドロワーが常時表示されてしまう。 */
 [hidden] { display: none !important; }
 
+/* 視覚的には隠すがフォーカス/読み上げには残す（file input 等） */
+.sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.attach-btn:focus-within, .attach-btn:has(+ .sr-only:focus) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 body {
     margin: 0;
     font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
@@ -81,7 +88,10 @@ body {
 }
 .ghost-btn:hover { background: var(--chip); }
 .ghost-btn:active { transform: translateY(1px); }
-.ghost-btn.small { padding: 4px 9px; }
+.ghost-btn.small { padding: 4px 9px; min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+/* 更新ボタンの読込中フィードバック */
+.ghost-btn.small.spinning span { display: inline-block; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .demo-notice {
     background: #fff7e6; color: #7a5b00; border-bottom: 1px solid #f0dca8;
@@ -99,7 +109,12 @@ body {
 }
 @media (max-width: 860px) {
     .layout { grid-template-columns: 1fr; }
-    .ledger-pane { order: -1; }
+    /* モバイルはページ全体を1つの通常スクロールに。内側スクロール(vh上限)を解除し
+       チャット(入力欄)を上・台帳を下にして、下端が見切れないようにする。 */
+    .chat-pane { min-height: 0; order: 0; }
+    .ledger-pane { order: 1; }
+    .messages { max-height: none; }
+    .ledger { max-height: none; overflow: visible; }
 }
 
 /* ---- Chat ---- */
@@ -137,6 +152,8 @@ body {
 .card-row .k { color: var(--text-dim); }
 .card-row .v { font-weight: 600; text-align: right; word-break: break-word; }
 .card-row .v.amount { color: var(--success); }
+.card-row .v.amount.warn { color: var(--danger); }
+.card-note { margin: 8px 0 0; font-size: .8rem; color: var(--danger); }
 .card-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .card-shortcuts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 
@@ -176,8 +193,9 @@ button.btn:disabled { opacity: .5; cursor: default; }
 .attach-preview { position: relative; display: inline-block; margin-bottom: 8px; }
 .attach-preview img { max-height: 90px; border-radius: 8px; display: block; }
 .attach-remove {
-    position: absolute; top: -8px; right: -8px; background: var(--danger); color: #fff;
-    border: none; border-radius: 50%; width: 22px; height: 22px; cursor: pointer;
+    position: absolute; top: -10px; right: -10px; background: var(--danger); color: #fff;
+    border: none; border-radius: 50%; width: 28px; height: 28px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1;
 }
 #input {
     width: 100%; resize: none; border: 1px solid var(--border); border-radius: 10px;
@@ -218,7 +236,11 @@ button.btn:disabled { opacity: .5; cursor: default; }
 .drawer-overlay { justify-content: flex-end; align-items: stretch; padding: 0; }
 .modal {
     background: var(--surface); border-radius: var(--radius); padding: 20px; width: 100%;
-    max-width: 420px; box-shadow: var(--shadow); max-height: 90vh; overflow-y: auto;
+    max-width: 420px; box-shadow: var(--shadow); max-height: 90dvh; overflow-y: auto;
+}
+/* モバイルは上寄せにして、ソフトキーボード表示時に「反映する」が隠れないように */
+@media (max-width: 860px) {
+    .modal-overlay { align-items: flex-start; padding-top: 12px; }
 }
 .modal h3 { margin: 0 0 14px; }
 .modal label, .drawer label { display: flex; flex-direction: column; gap: 5px; font-size: .8rem; color: var(--text-dim); margin-bottom: 12px; }
@@ -247,7 +269,7 @@ button.btn:disabled { opacity: .5; cursor: default; }
     display: inline-flex; align-items: center; gap: 6px; background: var(--chip);
     border-radius: 999px; padding: 4px 6px 4px 11px; font-size: .8rem;
 }
-.chip button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: .9rem; line-height: 1; }
+.chip button { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: .9rem; line-height: 1; min-width: 28px; min-height: 28px; }
 .chip button:hover { color: var(--danger); }
 .mini-form, .fixed-form { display: flex; gap: 6px; flex-wrap: wrap; }
 .mini-form input { flex: 1; min-width: 120px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text); font: inherit; }
