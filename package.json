@@ -1,0 +1,14 @@
+{
+  "name": "keihi-vercel-demo",
+  "version": "1.0.0",
+  "description": "経費くん Webデモ版 (Vercel Edge Functions)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.3"
+  }
+}

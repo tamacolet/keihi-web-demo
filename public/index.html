@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>経費くん Webデモ — レシートを送るだけでAI記帳</title>
+    <meta name="description" content="レシート画像や一言テキストを送るだけで、AIが日付・金額・勘定科目を抽出してスプレッドシートに自動記帳するデモです。" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>" />
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-logo">🧾</span>
+            <div>
+                <h1>経費くん <span class="brand-tag">Webデモ</span></h1>
+                <p class="brand-sub">レシート画像 or 一言テキスト → AIが抽出 → 確認 → スプレッドシート記帳</p>
+            </div>
+        </div>
+        <div class="topbar-actions">
+            <button id="btn-settings" class="ghost-btn" title="設定">⚙️ 設定</button>
+            <button id="btn-theme" class="ghost-btn" title="テーマ切替">🌓</button>
+        </div>
+    </header>
+
+    <div class="demo-notice">
+        ⚠️ これは<strong>公開デモ</strong>です。記帳内容は誰でも見られる共有シートに入り、定期的にリセットされます。個人情報や本物の金額は入れないでください。
+    </div>
+
+    <main class="layout">
+        <!-- チャットペイン -->
+        <section class="chat-pane">
+            <div id="messages" class="messages" aria-live="polite"></div>
+
+            <form id="composer" class="composer">
+                <label class="attach-btn" title="画像を添付">
+                    📎
+                    <input id="file-input" type="file" accept="image/*" hidden />
+                </label>
+                <div class="composer-main">
+                    <div id="attach-preview" class="attach-preview" hidden>
+                        <img id="attach-thumb" alt="添付プレビュー" />
+                        <button type="button" id="attach-remove" class="attach-remove" title="削除">✕</button>
+                    </div>
+                    <textarea id="input" rows="1" placeholder="例）コンビニ 500円 / スタバ ラテ 620円 … 画像も貼り付けOK"></textarea>
+                </div>
+                <button type="submit" id="send-btn" class="send-btn">送信</button>
+            </form>
+            <p class="hint">💡 画像は貼り付け（Ctrl+V）やドラッグ&ドロップもできます。</p>
+        </section>
+
+        <!-- ライブ台帳 -->
+        <aside class="ledger-pane">
+            <div class="ledger-head">
+                <h2>📒 みんなの記帳</h2>
+                <button id="btn-refresh" class="ghost-btn small" title="更新">↻</button>
+            </div>
+            <div id="ledger" class="ledger">
+                <p class="ledger-empty">読み込み中…</p>
+            </div>
+        </aside>
+    </main>
+
+    <!-- 修正モーダル -->
+    <div id="edit-modal" class="modal-overlay" hidden>
+        <div class="modal">
+            <h3>経費内容の修正</h3>
+            <label>日付 (YYYY-MM-DD)<input id="edit-date" type="text" /></label>
+            <label>金額 (円)<input id="edit-amount" type="text" inputmode="numeric" /></label>
+            <label>勘定科目<input id="edit-category" type="text" list="cat-list" /></label>
+            <label>支払先<input id="edit-payee" type="text" /></label>
+            <label>備考<textarea id="edit-notes" rows="2"></textarea></label>
+            <datalist id="cat-list"></datalist>
+            <div class="modal-actions">
+                <button id="edit-cancel" class="ghost-btn">閉じる</button>
+                <button id="edit-save" class="primary-btn">反映する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 設定ドロワー -->
+    <div id="settings-drawer" class="drawer-overlay" hidden>
+        <div class="drawer">
+            <div class="drawer-head">
+                <h2>⚙️ 設定（フル体験）</h2>
+                <button id="settings-close" class="ghost-btn">✕</button>
+            </div>
+            <p class="drawer-note">この設定はあなたのブラウザにだけ保存されます（localStorage）。</p>
+
+            <section class="setting-block">
+                <h3>勘定科目マスタ</h3>
+                <p class="setting-help">AIはこの中から一番近いものを選んで記帳します。</p>
+                <div id="category-chips" class="chips"></div>
+                <form id="category-form" class="mini-form">
+                    <input id="category-input" type="text" placeholder="科目を追加" maxlength="20" />
+                    <button class="primary-btn small" type="submit">追加</button>
+                </form>
+            </section>
+
+            <section class="setting-block">
+                <h3>ショートカット（1タップ科目変更）</h3>
+                <p class="setting-help">確認カードに表示され、ワンタップで科目を差し替えられます。</p>
+                <div id="shortcut-chips" class="chips"></div>
+                <form id="shortcut-form" class="mini-form">
+                    <input id="shortcut-input" type="text" placeholder="ショートカットを追加" maxlength="20" />
+                    <button class="primary-btn small" type="submit">追加</button>
+                </form>
+            </section>
+
+            <section class="setting-block">
+                <h3>固定費（毎月の自動記帳）</h3>
+                <p class="setting-help">毎月の家賃・サブスク等を登録し、ボタンで一括記帳をシミュレーションできます。</p>
+                <div id="fixed-list" class="fixed-list"></div>
+                <form id="fixed-form" class="fixed-form">
+                    <input id="fixed-amount" type="text" inputmode="numeric" placeholder="金額" />
+                    <input id="fixed-category" type="text" placeholder="科目" list="cat-list" />
+                    <input id="fixed-payee" type="text" placeholder="支払先(任意)" />
+                    <button class="primary-btn small" type="submit">追加</button>
+                </form>
+                <button id="fixed-run" class="accent-btn">🗓️ 今月分を自動記帳する</button>
+            </section>
+        </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
