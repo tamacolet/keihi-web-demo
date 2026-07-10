@@ -44,6 +44,10 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 属性を最優先に。これが無いと .modal-overlay 等の display 指定が
+   [hidden]{display:none} を上書きし、モーダル/ドロワーが常時表示されてしまう。 */
+[hidden] { display: none !important; }
+
 body {
     margin: 0;
     font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
