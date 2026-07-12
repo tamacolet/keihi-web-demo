@@ -19,10 +19,11 @@ Discord 経費 BOT の中核体験（レシート/テキスト → AI 抽出 →
 ### 主な機能
 - 🧠 **AI 抽出** — 画像/テキストから経費データを構造化（`gemini-2.5-flash-lite`）
 - 🃏 **確認カード** — Discord 風の UI で 記帳 / 修正 / キャンセル ＋ ワンタップ科目変更（ショートカット）
-- 📒 **ライブ台帳** — 「みんなの記帳」で共有シートの直近記帳をリアルタイム表示（20 秒ポーリング）
+- 📸 **画像は自動圧縮** — スマホ写真は送信前に canvas でリサイズ・再圧縮（長辺 1600px・JPEG 0.8）。Edge のリクエストボディ上限に収め、通信量も削減
+- 📒 **ライブ台帳** — 「みんなの記帳」で共有シートの直近記帳を表示（20 秒ポーリング／サーバー側 10 秒キャッシュで読み取りクォータを保護）
 - ⚙️ **任意カスタマイズ** — 勘定科目マスタ／ショートカットをブラウザ内（localStorage）で編集
 - 🌓 **ライト/ダーク対応・レスポンシブ**
-- ♿ **アクセシビリティ配慮** — aria-label / dialog ロール / Esc 閉じ / フォーカス管理 / キーボード操作
+- ♿ **アクセシビリティ配慮** — aria-label / dialog ロール / Esc 閉じ / `inert` フォーカストラップ / キーボード操作
 
 ---
 
@@ -92,11 +93,11 @@ Discord 経費 BOT の中核体験（レシート/テキスト → AI 抽出 →
 ## 🔄 処理の流れ（詳細）
 
 1. ユーザーがテキスト/画像を送信 → `POST /api/extract`
-2. `lib/ratelimit` で IP レート制限チェック → `lib/gemini.extractExpenseData` が Gemini REST を呼び、JSON で経費データを取得（勘定科目はユーザーのマスタに束縛。マスタ外語は生成禁止）
+2. `lib/ratelimit` で IP レート制限チェック → `lib/gemini.extractExpenseData` が Gemini REST を呼び、JSON で経費データを取得。勘定科目はユーザーのマスタに束縛し、**サーバー側でもマスタ照合**して外れ値は「その他」へ丸める（レシート画像内の指示文によるプロンプトインジェクション対策）
 3. フロントが確認カードを描画。金額を読み取れない場合は「記帳する」を無効化し修正へ誘導
 4. 「記帳する」→ `POST /api/record` → `lib/http.sanitizeExpense` で検証（金額は正の整数のみ）→ `lib/sheets.appendExpense` が RAW で 1 行追記
-5. 台帳は `GET /api/recent` を 20 秒ごとに取得して更新
-6. 日次で `POST /api/cron/trim`（Vercel Cron）が古い行を削除
+5. 台帳は `GET /api/recent` を 20 秒ごとに取得。`lib/sheets` が結果を 10 秒キャッシュ（全訪問者で共有）し、閲覧者数に比例した Sheets 読み取りを防ぐ
+6. 日次で `POST /api/cron/trim`（Vercel Cron）が古い行を削除（`CRON_SECRET` の Bearer 認証必須）
 
 ---
 
@@ -131,7 +132,7 @@ Vercel の **Settings → Environment Variables**（またはローカルは `.e
 | `GOOGLE_PRIVATE_KEY` | ✅ | サービスアカウント秘密鍵。`-----BEGIN...END-----` を丸ごと（実改行 / `\n` エスケープどちらも可） |
 | `DEMO_SHEET_ID` | ✅ | 記帳先スプレッドシートの ID（URL の `/d/<ここ>/edit`） |
 | `DEMO_SHEET_TAB` | | 記帳先タブ名（既定 `デモ`） |
-| `CRON_SECRET` | | 設定すると `/api/cron/trim` を `Authorization: Bearer` で保護 |
+| `CRON_SECRET` | ▲ | `/api/cron/trim` の認証。**fail-closed** のため未設定だと cron は 500 で動かない（Vercel Cron が設定時に `Authorization: Bearer` を自動付与）。日次トリムを使うなら設定 |
 
 ### 事前準備（Google 側）
 1. Google スプレッドシートを作成し、記帳用タブ（既定名 `デモ`）にヘッダ行（`日付 / 金額 / 勘定科目 / 支払先 / 備考 / 記帳時刻`）を用意
@@ -165,10 +166,14 @@ npx vercel deploy --prod
 ## 🛡️ セキュリティ / 濫用対策
 
 - **秘密情報は全て Vercel 環境変数** — クライアント JS に一切露出しない
-- **RAW 固定** — Sheets 書き込みで数式インジェクションを無効化
+- **RAW 固定** — Sheets 書き込みで数式インジェクション（`=IMPORTXML(...)` 等）を無効化
+- **プロンプトインジェクション対策** — Gemini 返却の勘定科目をサーバー側でマスタ照合し、外れ値を丸める。categories の制御文字も除去
 - **入力サニタイズ** — 金額は正の整数のみ、各フィールド長を制限
-- **レート制限** — IP 単位で 6 回/分・40 回/時（インメモリ best-effort）
-- **画像サイズ上限** — クライアント/サーバー双方で ~5MB
+- **レート制限** — extract/record は IP 単位で 6 回/分・40 回/時（インメモリ best-effort）。台帳読み取りは 10 秒キャッシュで保護
+- **画像は圧縮して送信** — クライアントで長辺 1600px・JPEG 0.8 に再圧縮（Edge のボディ上限超過を回避）
+- **cron は fail-closed** — `CRON_SECRET` 未設定なら実行拒否。GET/POST 以外も拒否
+- **セキュリティヘッダ** — CSP（`default-src 'self'` ＋ 画像は data:/blob: のみ）・`X-Content-Type-Options: nosniff`・`X-Frame-Options: DENY`・`Referrer-Policy`
+- **内部エラーの非露出** — Google API の生エラー詳細はサーバーログのみ、クライアントには固定メッセージ
 - **日次トリム** — 共有シートを直近 200 行に保つ
 
 > 公開デモのため、記帳内容は共有シートに入ります。個人情報や本物の金額は入力しないでください。
@@ -179,8 +184,11 @@ npx vercel deploy --prod
 
 - アイコンボタンに `aria-label`、装飾絵文字は `aria-hidden`
 - モーダル/ドロワーに `role="dialog"` / `aria-modal`、**Esc で閉じる**、開閉時のフォーカス移動・復帰
+- **フォーカストラップ** — ダイアログ表示中は背景（header/notice/main）に `inert` を付与し、Tab が背後に抜けない
+- 修正モーダルは `<form>` 化して **Enter で反映**
 - 画像添付はキーボード到達可能（視覚的非表示の file input）
 - トーストは `role="status"` `aria-live`、メッセージ領域は `aria-live="polite"`
+- 台帳は内容不変時に再描画せず、スクリーンリーダーの読み上げ位置を保護
 
 ---
 
