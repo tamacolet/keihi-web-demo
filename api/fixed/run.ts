@@ -31,7 +31,9 @@ export default async function handler(req: Request): Promise<Response> {
         return json({ error: e?.message || '固定費データが不正です。' }, 400);
     }
 
-    const rl = checkRateLimit(clientIp(req), items.length);
+    // 一括記帳は1リクエスト=cost 1 として扱う（件数は MAX_FIXED_ITEMS で担保）。
+    // items.length を消費すると7件以上で恒久的に上限超過し必ず429になるため。
+    const rl = checkRateLimit(clientIp(req), 1);
     if (!rl.ok) return json({ error: rl.message }, 429);
 
     try {

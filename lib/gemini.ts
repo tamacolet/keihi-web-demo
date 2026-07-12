@@ -36,17 +36,23 @@ function buildSystemInstruction(categories: string[], today: string): string {
 `;
 }
 
-function normalize(raw: any, today: string): ExpenseData {
+function normalize(raw: any, today: string, categories: string[]): ExpenseData {
     let amount = raw?.amount;
     if (typeof amount !== 'number' || isNaN(amount)) {
         amount = parseInt(String(amount ?? '').replace(/[^0-9]/g, ''), 10) || 0;
     }
+    // プロンプトインジェクション対策: マスタ外の category は必ずマスタ内へ丸める
+    // （レシート画像内の指示文で任意文字列を科目に通されないように）
+    let category = String(raw?.category || '');
+    if (!categories.includes(category)) {
+        category = categories.includes('その他') ? 'その他' : (categories[categories.length - 1] || '未分類');
+    }
     return {
         date: raw?.date || today,
         amount,
-        category: raw?.category || '未分類',
-        payee: raw?.payee || '',
-        notes: raw?.notes || ''
+        category,
+        payee: String(raw?.payee || '').slice(0, 100),
+        notes: String(raw?.notes || '').slice(0, 300)
     };
 }
 
@@ -117,7 +123,7 @@ export async function extractExpenseData(input: ExtractInput): Promise<ExpenseDa
             if (!textOut) throw new Error('Gemini API did not return text.');
 
             const parsed = JSON.parse(textOut.trim());
-            return normalize(parsed, today);
+            return normalize(parsed, today, input.categories);
         } catch (err: any) {
             console.error(`Gemini extraction error with key ${i + 1}:`, err?.message);
             if (i < keys.length - 1) continue;

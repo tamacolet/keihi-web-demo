@@ -4,6 +4,9 @@ import { extractExpenseData } from '../lib/gemini';
 import { checkRateLimit } from '../lib/ratelimit';
 import { json, clientIp } from '../lib/http';
 
+// 制御文字（改行・タブ含む）を除去。クライアント経由で systemInstruction を汚さないため。
+const stripCtrl = (s: string) => Array.from(s).filter(ch => { const n = ch.charCodeAt(0); return n >= 32 && n !== 127; }).join("");
+
 export default async function handler(req: Request): Promise<Response> {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
@@ -18,7 +21,7 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     const categories: string[] = Array.isArray(payload?.categories) && payload.categories.length
-        ? payload.categories.map((c: any) => String(c).slice(0, 50)).slice(0, 50)
+        ? payload.categories.map((c: any) => stripCtrl(String(c)).slice(0, 50)).filter(Boolean).slice(0, 50)
         : [];
 
     try {

@@ -11,7 +11,9 @@ const LS = {
   shortcuts: 'keihi.shortcuts',
   fixed: 'keihi.fixed'
 };
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;   // 入力上限（圧縮前）。実送信は圧縮後で軽くなる
+const IMAGE_MAX_EDGE = 1600;                 // 圧縮後の長辺(px)。レシートOCRに十分
+const IMAGE_QUALITY = 0.8;                   // JPEG品質
 
 function load(key, fallback) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; }
@@ -71,7 +73,14 @@ function toast(msg) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+function scrollDown() {
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  // モバイルは messages が内側スクロールしない（max-height:none）ため、
+  // 最後の子をビューポート内へスクロールして新着が画面外に出ないようにする
+  if (messagesEl.scrollHeight <= messagesEl.clientHeight + 1) {
+    messagesEl.lastElementChild?.scrollIntoView({ block: 'nearest' });
+  }
+}
 
 function addUserMessage(text, imageUrl) {
   const wrap = document.createElement('div');
@@ -122,14 +131,23 @@ function addConfirmCard(data) {
     card.querySelector('[data-act="edit"]').addEventListener('click', onEdit);
     card.querySelector('[data-act="cancel"]').addEventListener('click', onCancel);
     card.querySelectorAll('[data-sc]').forEach(b =>
-      b.addEventListener('click', () => { current.category = b.dataset.sc; renderCard(); })
+      b.addEventListener('click', () => { current.category = b.dataset.sc; renderCard(); refocusCard('[data-act="edit"]'); })
     );
   }
+  // 設定ドロワーの科目/ショートカット変更をこのカードへ反映するためのフック
+  card.__rerender = renderCard;
 
-  function finalize(html, done) {
+  // innerHTML 差し替えでフォーカスが body に落ちるのを防ぎ、同等ボタンへ戻す
+  function refocusCard(sel) {
+    const t = card.querySelector(sel);
+    if (t && t.focus) t.focus();
+  }
+
+  function finalize(html) {
     card.classList.add('done');
     card.innerHTML = html;
-    if (done) card.classList.add('done');
+    card.tabIndex = -1;
+    card.focus(); // 押下ボタンが破棄されるため、結果カード自体へフォーカスを移す
   }
 
   async function onRecord() {
@@ -147,27 +165,38 @@ function addConfirmCard(data) {
         <div class="card-row"><span class="k">金額</span><span class="v amount">${Number(current.amount).toLocaleString()}円</span></div>
         <div class="card-row"><span class="k">勘定科目</span><span class="v">${escapeHtml(current.category)}</span></div>
         <div class="status-line">スプレッドシートに追記しました。→ みんなの記帳に反映</div>
-      `, true);
+      `);
       loadLedger();
       toast('記帳しました！');
     } catch (e) {
       renderCard();
+      refocusCard('[data-act="record"]');
       toast('⚠️ ' + e.message);
     }
   }
 
-  function onEdit() { openEditModal(current, (updated) => { current = updated; renderCard(); }); }
-  function onCancel() { finalize('<h4>🚫 記帳をキャンセルしました。</h4>', true); }
+  function onEdit() { openEditModal(current, (updated) => { current = updated; renderCard(); refocusCard('[data-act="edit"]'); }); }
+  function onCancel() { finalize('<h4>🚫 記帳をキャンセルしました。</h4>'); }
 
   renderCard();
   scrollDown();
 }
 
+// ---- ダイアログ共通: 背景を inert 化してフォーカストラップ ----
+function setBackgroundInert(on) {
+  ['app-header', 'demo-notice', 'app-main'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { if (on) el.setAttribute('inert', ''); else el.removeAttribute('inert'); }
+  });
+}
+// 復帰先が既にDOMから外れている場合はスキップ
+function restoreFocus(el) { if (el && el.isConnected && el.focus) el.focus(); }
+
 // ---- 修正モーダル ----
 let modalSave = null;
-let lastFocused = null;  // ダイアログを開く前のフォーカス起点（閉じたら復帰）
+let lastFocusedModal = null;
 function openEditModal(data, onSave) {
-  lastFocused = document.activeElement;
+  lastFocusedModal = document.activeElement;
   $('edit-date').value = data.date;
   $('edit-amount').value = data.amount;
   $('edit-category').value = data.category;
@@ -176,14 +205,17 @@ function openEditModal(data, onSave) {
   refreshCatDatalist();
   modalSave = onSave;
   $('edit-modal').hidden = false;
+  setBackgroundInert(true);
   $('edit-date').focus();
 }
 function closeEditModal() {
   $('edit-modal').hidden = true; modalSave = null;
-  if (lastFocused && lastFocused.focus) lastFocused.focus();
+  setBackgroundInert(false);
+  restoreFocus(lastFocusedModal);
 }
 $('edit-cancel').addEventListener('click', closeEditModal);
-$('edit-save').addEventListener('click', () => {
+$('edit-form').addEventListener('submit', (e) => {
+  e.preventDefault();
   const amount = parseInt(String($('edit-amount').value).replace(/[^0-9]/g, ''), 10);
   if (!Number.isFinite(amount) || amount <= 0) { toast('⚠️ 金額は1以上の数字で入力してください。'); return; }
   const date = $('edit-date').value.trim();
@@ -194,8 +226,10 @@ $('edit-save').addEventListener('click', () => {
     payee: $('edit-payee').value.trim(),
     notes: $('edit-notes').value.trim()
   };
-  if (modalSave) modalSave(updated);
+  // コールバックを退避 → 先に閉じてから反映（renderCard で復帰先が破棄される問題を回避）
+  const cb = modalSave;
   closeEditModal();
+  if (cb) cb(updated);
 });
 $('edit-modal').addEventListener('click', (e) => { if (e.target.id === 'edit-modal') closeEditModal(); });
 
@@ -239,19 +273,22 @@ async function handleSend() {
     thinking.remove();
     if (!res.ok) {
       addBotBubble('❌ ' + escapeHtml(body.error || 'エラーが発生しました。'));
-      // 失敗時は入力とプレビューを復元してリトライしやすく
-      inputEl.value = text; autoGrow();
-      if (imgForReq) { pendingImage = imgForReq; attachThumb.src = imgForReq.dataUrl; attachPreview.hidden = false; }
+      restoreDraft(text, imgForReq);
     }
     else { addConfirmCard(body.data); }
   } catch (e) {
     thinking.remove();
     addBotBubble('❌ 通信エラーが発生しました。');
-    inputEl.value = text; autoGrow();
-    if (imgForReq) { pendingImage = imgForReq; attachThumb.src = imgForReq.dataUrl; attachPreview.hidden = false; }
+    restoreDraft(text, imgForReq);
   } finally {
     setSendingState(false);
   }
+}
+
+// 失敗時に下書きを戻す。ただし待機中にユーザーが打ち直し/添付し直していれば上書きしない。
+function restoreDraft(text, imgForReq) {
+  if (!inputEl.value.trim() && text) { inputEl.value = text; autoGrow(); }
+  if (imgForReq && !pendingImage) { pendingImage = imgForReq; attachThumb.src = imgForReq.dataUrl; attachPreview.hidden = false; }
 }
 composerEl.addEventListener('submit', (e) => { e.preventDefault(); handleSend(); });
 inputEl.addEventListener('keydown', (e) => {
@@ -264,44 +301,76 @@ function autoGrow() { inputEl.style.height = 'auto'; inputEl.style.height = Math
 inputEl.addEventListener('input', autoGrow);
 
 // ---- 画像添付 ----
-function setImageFromFile(file) {
+// canvas でリサイズ・JPEG再圧縮してから送る。スマホの数MB写真がそのままだと
+// Vercel Edge のリクエストボディ上限(約4MB)を超えて失敗するため、事前に縮小する。
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('canvas unsupported')); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', IMAGE_QUALITY);
+      const base64 = dataUrl.split(',')[1];
+      if (!base64) { reject(new Error('encode failed')); return; }
+      resolve({ base64, mimeType: 'image/jpeg', dataUrl });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+    img.src = url;
+  });
+}
+
+async function setImageFromFile(file) {
   if (!file || !file.type.startsWith('image/')) { toast('⚠️ 画像ファイルを選んでください。'); return; }
-  if (file.size > MAX_IMAGE_BYTES) { toast('⚠️ 画像が大きすぎます（上限5MB）。'); return; }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const dataUrl = reader.result;
-    const base64 = String(dataUrl).split(',')[1];
-    if (!base64) { toast('⚠️ 画像を読み込めませんでした。'); return; }
-    pendingImage = { base64, mimeType: file.type, dataUrl };
-    attachThumb.src = dataUrl;
+  if (file.size > MAX_IMAGE_BYTES) { toast('⚠️ 画像が大きすぎます（上限10MB）。'); return; }
+  try {
+    pendingImage = await compressImage(file);
+    attachThumb.src = pendingImage.dataUrl;
     attachPreview.hidden = false;
-  };
-  reader.onerror = () => { toast('⚠️ 画像を読み込めませんでした。'); };
-  reader.readAsDataURL(file);
+  } catch {
+    toast('⚠️ 画像を読み込めませんでした。');
+  }
 }
 function clearAttachment() { pendingImage = null; attachPreview.hidden = true; attachThumb.src = ''; fileInput.value = ''; }
 fileInput.addEventListener('change', (e) => setImageFromFile(e.target.files[0]));
 $('attach-remove').addEventListener('click', clearAttachment);
+// モーダル/ドロワー表示中は貼り付け/ドロップの画像添付を無視する
+function overlayOpen() { return !$('edit-modal').hidden || !$('settings-drawer').hidden; }
 document.addEventListener('paste', (e) => {
+  if (overlayOpen()) return;
   const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
   if (item) setImageFromFile(item.getAsFile());
 });
 ['dragover', 'drop'].forEach(ev => document.addEventListener(ev, (e) => e.preventDefault()));
 document.addEventListener('drop', (e) => {
+  if (overlayOpen()) return;
   const f = e.dataTransfer?.files?.[0];
   if (f) setImageFromFile(f);
 });
 
 // ---- ライブ台帳 ----
 let lastLedgerKey = '';
+let lastLedgerSig = '';   // 全行のシグネチャ（無変更なら再描画しない）
+let ledgerSeq = 0;        // 連番で古いレスポンスの描画を破棄
 async function loadLedger() {
+  const seq = ++ledgerSeq;
   try {
     const res = await fetch('/api/recent');
     const body = await res.json();
+    if (seq !== ledgerSeq) return; // より新しい取得が走っていれば破棄
     // 取得失敗（error あり）と正常な空を区別する
-    if (body.error) { ledgerEl.innerHTML = '<p class="ledger-empty">台帳の取得に失敗しました。時間をおいて再度お試しください。</p>'; return; }
+    if (body.error) { ledgerEl.innerHTML = '<p class="ledger-empty">台帳の取得に失敗しました。時間をおいて再度お試しください。</p>'; lastLedgerSig = ''; return; }
     const rows = body.rows || [];
-    if (rows.length === 0) { ledgerEl.innerHTML = '<p class="ledger-empty">まだ記帳がありません。<br>経費を送るとここに反映されます。</p>'; return; }
+    if (rows.length === 0) { ledgerEl.innerHTML = '<p class="ledger-empty">まだ記帳がありません。<br>経費を送るとここに反映されます。</p>'; lastLedgerSig = ''; return; }
+    const sig = JSON.stringify(rows);
+    if (sig === lastLedgerSig) return; // 内容不変なら DOM を触らない
     const firstKey = rows[0].date + rows[0].amount + rows[0].stamp;
     ledgerEl.innerHTML = rows.map((r, i) => `
       <div class="ledger-row ${i === 0 && firstKey !== lastLedgerKey && lastLedgerKey ? 'fresh' : ''}">
@@ -309,8 +378,9 @@ async function loadLedger() {
         <div class="lr-sub"><span>${escapeHtml(r.payee || r.notes || '')}</span><span>${escapeHtml(r.date)}</span></div>
       </div>`).join('');
     lastLedgerKey = firstKey;
+    lastLedgerSig = sig;
   } catch {
-    ledgerEl.innerHTML = '<p class="ledger-empty">台帳の取得に失敗しました。</p>';
+    if (seq === ledgerSeq) { ledgerEl.innerHTML = '<p class="ledger-empty">台帳の取得に失敗しました。</p>'; lastLedgerSig = ''; }
   }
 }
 $('btn-refresh').addEventListener('click', async () => {
@@ -321,15 +391,20 @@ $('btn-refresh').addEventListener('click', async () => {
 setInterval(loadLedger, 20000);
 
 // ---- 設定ドロワー ----
+let lastFocusedDrawer = null;
 function openSettings() {
-  lastFocused = document.activeElement;
+  lastFocusedDrawer = document.activeElement;
   renderSettings();
   $('settings-drawer').hidden = false;
+  setBackgroundInert(true);
   $('settings-close').focus();
 }
 function closeSettings() {
   $('settings-drawer').hidden = true;
-  if (lastFocused && lastFocused.focus) lastFocused.focus();
+  setBackgroundInert(false);
+  restoreFocus(lastFocusedDrawer);
+  // 設定変更（科目/ショートカット）を、表示中の未確定カードに反映する
+  document.querySelectorAll('.card:not(.done)').forEach(c => { if (c.__rerender) c.__rerender(); });
 }
 $('btn-settings').addEventListener('click', openSettings);
 $('settings-close').addEventListener('click', closeSettings);

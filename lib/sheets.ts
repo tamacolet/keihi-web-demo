@@ -108,11 +108,13 @@ export async function appendExpenses(rows: ExpenseData[]): Promise<void> {
 
     if (!res.ok) {
         const detail = await res.text();
+        console.error('Sheets append error:', res.status, detail);
         if (res.status === 403) {
             throw new Error('デモシートの編集権限がありません。サービスアカウントを編集者に追加してください。');
         }
-        throw new Error(`スプレッドシートへの書き込みに失敗しました: ${res.status} ${detail}`);
+        throw new Error('スプレッドシートへの書き込みに失敗しました。時間をおいてお試しください。');
     }
+    recentCache = null; // 記帳したら台帳キャッシュを無効化し、次の取得で即反映
 }
 
 export interface RecentRow {
@@ -124,7 +126,22 @@ export interface RecentRow {
     stamp: string;
 }
 
+// 台帳の直近行を短時間キャッシュ（全訪問者で共有）。20秒ポーリング×閲覧者数が
+// そのまま Sheets 読み取りクォータを食わないようにする。
+let recentCache: { rows: RecentRow[]; at: number } | null = null;
+const RECENT_TTL_MS = 10_000;
+
 export async function getRecent(limit = 15): Promise<RecentRow[]> {
+    const now = Date.now();
+    if (recentCache && now - recentCache.at < RECENT_TTL_MS) {
+        return recentCache.rows.slice(0, limit);
+    }
+    const rows = await fetchRecent(limit);
+    recentCache = { rows, at: now };
+    return rows;
+}
+
+async function fetchRecent(limit: number): Promise<RecentRow[]> {
     const sa = serviceAccount();
     const token = await getAccessToken();
     const range = encodeURIComponent(quotedRange('A:F'));
@@ -132,8 +149,8 @@ export async function getRecent(limit = 15): Promise<RecentRow[]> {
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) {
-        const detail = await res.text();
-        throw new Error(`シート読み取りに失敗しました: ${res.status} ${detail}`);
+        console.error('Sheets read error:', res.status, await res.text());
+        throw new Error('シートの読み取りに失敗しました。時間をおいてお試しください。');
     }
 
     const json: any = await res.json();
