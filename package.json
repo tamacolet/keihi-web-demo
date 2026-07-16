@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "sh scripts/test.sh",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -178,10 +178,13 @@ export async function trimSheet(keep = 200): Promise<void> {
         `https://sheets.googleapis.com/v4/spreadsheets/${sa.sheetId}?fields=sheets.properties(sheetId,title,gridProperties.rowCount)`,
         { headers: { Authorization: `Bearer ${token}` } }
     );
-    if (!metaRes.ok) throw new Error(`メタ取得失敗: ${metaRes.status}`);
+    if (!metaRes.ok) {
+        console.error('Sheets trim metadata error:', metaRes.status, await metaRes.text());
+        throw new Error(`シート情報の取得に失敗しました: ${metaRes.status}`);
+    }
     const meta: any = await metaRes.json();
     const sheet = (meta.sheets || []).find((s: any) => s.properties?.title === sa.tab);
-    if (!sheet) return;
+    if (!sheet) throw new Error(`トリム対象のタブ「${sa.tab}」が見つかりません。`);
     const sheetId = sheet.properties.sheetId;
 
     const range = encodeURIComponent(quotedRange('A:F'));
@@ -189,7 +192,10 @@ export async function trimSheet(keep = 200): Promise<void> {
         `https://sheets.googleapis.com/v4/spreadsheets/${sa.sheetId}/values/${range}`,
         { headers: { Authorization: `Bearer ${token}` } }
     );
-    if (!valsRes.ok) return;
+    if (!valsRes.ok) {
+        console.error('Sheets trim values error:', valsRes.status, await valsRes.text());
+        throw new Error(`トリム対象データの取得に失敗しました: ${valsRes.status}`);
+    }
     const vals: any = await valsRes.json();
     const total = (vals.values || []).length;
     const hasHeader = total > 0 && /日付|date/i.test(vals.values[0][0] || '');
@@ -201,7 +207,7 @@ export async function trimSheet(keep = 200): Promise<void> {
     const startIndex = headerRows;
     const endIndex = headerRows + removeCount;
 
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sa.sheetId}:batchUpdate`, {
+    const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sa.sheetId}:batchUpdate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -210,4 +216,9 @@ export async function trimSheet(keep = 200): Promise<void> {
             ]
         })
     });
+    if (!updateRes.ok) {
+        console.error('Sheets trim delete error:', updateRes.status, await updateRes.text());
+        throw new Error(`古い行の削除に失敗しました: ${updateRes.status}`);
+    }
+    recentCache = null;
 }
